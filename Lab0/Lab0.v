@@ -1,3 +1,7 @@
+/**
+ * Nahum Markov - 592539150
+ * Ely van Dijk - 561151156
+ */
 import os
 
 // Write helper functions for each type of command
