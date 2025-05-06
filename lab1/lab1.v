@@ -1,3 +1,7 @@
+/**
+ * Nahum Markov - 592539150
+ * Ely van Dijk - 561151156
+ */
 module main
 
 import os
