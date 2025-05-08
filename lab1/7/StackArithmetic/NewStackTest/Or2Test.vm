@@ -1,0 +1,5 @@
+// Or2Test.vm
+// Test or#2: neg(x OR y) for x=6, y=3 → –(6|3)=–7
+push constant 6    // x = 6
+push constant 3    // y = 3
+or#2               // compute –(x OR y)
