@@ -2,361 +2,265 @@
  * Nahum Markov - 592539150
  * Ely van Dijk - 561151156
  */
+/// This program reads a .vm file containing VM commands and translates it into a
+/// .asm file containing Hack assembly instructions according to the VM specification.
+/// Usage: `v run lab1.v <input.vm>`
+
 module main
 
 import os
 
-// A simple parser that reads the input file line by line.
-struct Parser {
-mut:
-	lines   []string
-	current int
+// -------- ENUM + STRUCT DEFINITIONS --------
+
+/// Enumeration of all supported VM command types.
+pub enum CmdType {
+	add  ///< Arithmetic add
+	sub  ///< Arithmetic subtract
+	neg  ///< Arithmetic negation
+	eq   ///< Equality comparison
+	gt   ///< Greater-than comparison
+	lt   ///< Less-than comparison
+	and  ///< Bitwise AND
+	or   ///< Bitwise OR
+	not  ///< Bitwise NOT
+	push ///< Push value onto stack
+	pop  ///< Pop value from stack
 }
 
-fn (mut p Parser) has_more() bool {
-	return p.current < p.lines.len
+/// Represents a single parsed VM command.
+///
+/// Fields:
+/// - typ: The command type
+/// - segment: Memory segment (for push/pop)
+/// - index: Index within the segment (for push/pop)
+pub struct VMCommand {
+pub:
+	typ     CmdType
+	segment string
+	index   int
 }
 
-fn (mut p Parser) advance() string {
-	// Loop until we find a non-empty line (ignoring comments)
-	for p.current < p.lines.len {
-		mut line := p.lines[p.current].trim_space()
-		p.current++
-		if line == '' || line.starts_with('//') {
-			continue
-		}
-		// Remove any trailing comment.
-		if idx := line.index('//') {
-			if idx > 0 {
-				line = line[..idx].trim_space()
-			}
-		}
-		if line.len > 0 {
-			return line
-		}
-	}
-	return ''
-}
-
-// CodeWriter accumulates output Hack assembly code. It also maintains a label counter
-// for arithmetic commands (eq, gt, lt) that require unique labels and holds the file name (for static variables).
-struct CodeWriter {
-mut:
+/// Accumulates assembly output and tracks state for writing code.
+///
+/// Fields:
+/// - out: Generated assembly lines
+/// - label_counter: Counter for generating unique labels
+/// - file_name: Base name of the input file (for static variables)
+pub struct CodeWriter {
+pub mut:
+	out           []string
 	label_counter int
-	output        []string
 	file_name     string
 }
 
-fn (mut cw CodeWriter) write_arithmetic(command string) {
-	match command {
-		'add' {
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'M=M+D'
-		}
-		'sub' {
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'M=M-D'
-		}
-		'neg' {
-			cw.output << '@SP'
-			cw.output << 'A=M-1'
-			cw.output << 'M=-M'
-		}
-		'eq' {
-			mut lt_true := 'EQ_TRUE' + cw.label_counter.str()
-			mut lt_end := 'EQ_END' + cw.label_counter.str()
-			cw.label_counter++
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'D=M-D'
-			cw.output << '@' + lt_true
-			cw.output << 'D;JEQ'
-			cw.output << 'D=0'
-			cw.output << '@' + lt_end
-			cw.output << '0;JMP'
-			cw.output << '(' + lt_true + ')'
-			cw.output << 'D=-1'
-			cw.output << '(' + lt_end + ')'
-			cw.output << '@SP'
-			cw.output << 'A=M-1'
-			cw.output << 'M=D'
-		}
-		'gt' {
-			mut lt_true := 'GT_TRUE' + cw.label_counter.str()
-			mut lt_end := 'GT_END' + cw.label_counter.str()
-			cw.label_counter++
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'D=M-D'
-			cw.output << '@' + lt_true
-			cw.output << 'D;JGT'
-			cw.output << 'D=0'
-			cw.output << '@' + lt_end
-			cw.output << '0;JMP'
-			cw.output << '(' + lt_true + ')'
-			cw.output << 'D=-1'
-			cw.output << '(' + lt_end + ')'
-			cw.output << '@SP'
-			cw.output << 'A=M-1'
-			cw.output << 'M=D'
-		}
-		'lt' {
-			mut lt_true := 'LT_TRUE' + cw.label_counter.str()
-			mut lt_end := 'LT_END' + cw.label_counter.str()
-			cw.label_counter++
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'D=M-D'
-			cw.output << '@' + lt_true
-			cw.output << 'D;JLT'
-			cw.output << 'D=0'
-			cw.output << '@' + lt_end
-			cw.output << '0;JMP'
-			cw.output << '(' + lt_true + ')'
-			cw.output << 'D=-1'
-			cw.output << '(' + lt_end + ')'
-			cw.output << '@SP'
-			cw.output << 'A=M-1'
-			cw.output << 'M=D'
-		}
-		'and' {
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'M=M&D'
-		}
-		'or' {
-			cw.output << '@SP'
-			cw.output << 'AM=M-1'
-			cw.output << 'D=M'
-			cw.output << 'A=A-1'
-			cw.output << 'M=M|D'
-		}
-		'not' {
-			cw.output << '@SP'
-			cw.output << 'A=M-1'
-			cw.output << 'M=!M'
-		}
-		else {
-			// Unrecognized arithmetic command; do nothing.
-		}
-	}
-}
+// -------- PARSER --------
 
-fn (mut cw CodeWriter) write_push_constant(value string) {
-	cw.output << '@' + value
-	cw.output << 'D=A'
-	cw.output << '@SP'
-	cw.output << 'A=M'
-	cw.output << 'M=D'
-	cw.output << '@SP'
-	cw.output << 'M=M+1'
-}
-
-// write_push_pop handles push/pop commands for memory access.
-// It supports constant, local, argument, this, that, pointer, temp, and static segments.
-fn (mut cw CodeWriter) write_push_pop(cmd string, segment string, index string) {
-	if cmd == 'push' {
-		match segment {
-			'constant' {
-				cw.write_push_constant(index)
-			}
-			'local', 'argument', 'this', 'that' {
-				seg_reg := match segment {
-					'local' { 'LCL' }
-					'argument' { 'ARG' }
-					'this' { 'THIS' }
-					'that' { 'THAT' }
-					else { '' }
-				}
-				cw.output << '@' + index
-				cw.output << 'D=A'
-				cw.output << '@' + seg_reg
-				cw.output << 'A=M+D'
-				cw.output << 'D=M'
-				cw.output << '@SP'
-				cw.output << 'A=M'
-				cw.output << 'M=D'
-				cw.output << '@SP'
-				cw.output << 'M=M+1'
-			}
-			'temp' {
-				// Temp segment base is at RAM address 5.
-				// Compute address = 5 + index.
-				// In V, convert index string to int with index.int().
-				mut temp_addr := 5 + index.int()
-				cw.output << '@' + temp_addr.str()
-				cw.output << 'D=M'
-				cw.output << '@SP'
-				cw.output << 'A=M'
-				cw.output << 'M=D'
-				cw.output << '@SP'
-				cw.output << 'M=M+1'
-			}
-			'pointer' {
-				// Pointer: index 0 -> THIS, index 1 -> THAT.
-				mut seg := ''
-				if index == '0' {
-					seg = 'THIS'
-				} else if index == '1' {
-					seg = 'THAT'
-				}
-				cw.output << '@' + seg
-				cw.output << 'D=M'
-				cw.output << '@SP'
-				cw.output << 'A=M'
-				cw.output << 'M=D'
-				cw.output << '@SP'
-				cw.output << 'M=M+1'
-			}
-			'static' {
-				// For static, use a symbol composed of the file name and index.
-				cw.output << '@' + cw.file_name + '.' + index
-				cw.output << 'D=M'
-				cw.output << '@SP'
-				cw.output << 'A=M'
-				cw.output << 'M=D'
-				cw.output << '@SP'
-				cw.output << 'M=M+1'
-			}
-			else {
-				// Unknown segment.
-			}
-		}
-	} else if cmd == 'pop' {
-		match segment {
-			'local', 'argument', 'this', 'that' {
-				seg_reg := match segment {
-					'local' { 'LCL' }
-					'argument' { 'ARG' }
-					'this' { 'THIS' }
-					'that' { 'THAT' }
-					else { '' }
-				}
-				// Compute target address: base register + index, store in R13.
-				cw.output << '@' + index
-				cw.output << 'D=A'
-				cw.output << '@' + seg_reg
-				cw.output << 'D=M+D'
-				cw.output << '@R13'
-				cw.output << 'M=D'
-				// Pop top of stack and store into address in R13.
-				cw.output << '@SP'
-				cw.output << 'AM=M-1'
-				cw.output << 'D=M'
-				cw.output << '@R13'
-				cw.output << 'A=M'
-				cw.output << 'M=D'
-			}
-			'temp' {
-				mut temp_addr := 5 + index.int()
-				cw.output << '@SP'
-				cw.output << 'AM=M-1'
-				cw.output << 'D=M'
-				cw.output << '@' + temp_addr.str()
-				cw.output << 'M=D'
-			}
-			'pointer' {
-				mut seg := ''
-				if index == '0' {
-					seg = 'THIS'
-				} else if index == '1' {
-					seg = 'THAT'
-				}
-				cw.output << '@SP'
-				cw.output << 'AM=M-1'
-				cw.output << 'D=M'
-				cw.output << '@' + seg
-				cw.output << 'M=D'
-			}
-			'static' {
-				cw.output << '@SP'
-				cw.output << 'AM=M-1'
-				cw.output << 'D=M'
-				cw.output << '@' + cw.file_name + '.' + index
-				cw.output << 'M=D'
-			}
-			else {
-				// pop constant is invalid.
-			}
-		}
+/// Parses a single line of VM code into a VMCommand.
+///
+/// Returns `none` for blank lines or comments.
+pub fn parse_line(line string) ?VMCommand {
+	// Trim whitespace and ignore empty/comment lines
+	text := line.trim_space()
+	if text == '' || text.starts_with('//') {
+		return none
 	}
-}
-
-fn main() {
-	if os.args.len < 2 {
-		println('Usage: vm_translator <inputfile.vm>')
-		return
-	}
-	input_file := os.args[1]
-	data := os.read_file(input_file) or {
-		println('Error reading file: ${input_file}')
-		return
-	}
-
-	lines := data.split_into_lines()
-	mut parser := Parser{
-		lines:   lines
-		current: 0
-	}
-	mut code_writer := CodeWriter{
-		label_counter: 0
-		output:        []string{}
-		file_name:     ''
-	}
-
-	// Determine the base file name (without extension) for static variables.
-	mut base := os.file_name(input_file)
-	ext := os.file_ext(base)
-	if ext.len > 0 {
-		base = base[..base.len - ext.len]
-	}
-	code_writer.file_name = base
-
-	// Process each VM command in the file.
-	for parser.has_more() {
-		command := parser.advance()
-		if command == '' {
-			continue
-		}
-		parts := command.split(' ')
-		// If the command is "push" or "pop", handle it with write_push_pop.
-		if parts[0] == 'push' || parts[0] == 'pop' {
-			// Expecting at least three parts: [cmd, segment, index]
-			if parts.len >= 3 {
-				code_writer.write_push_pop(parts[0], parts[1], parts[2])
-			}
+	mut clean := text
+	// Remove inline comments
+	if idx := clean.index('//') {
+		if idx > 0 {
+			clean = clean[..idx].trim_space()
 		} else {
-			// Otherwise, assume an arithmetic/Boolean command.
-			match parts[0] {
-				'add', 'sub', 'neg', 'eq', 'gt', 'lt', 'and', 'or', 'not' {
-					code_writer.write_arithmetic(parts[0])
-				}
-				else {
-					// Ignore unhandled commands.
-				}
-			}
+			return none
 		}
 	}
-
-	// Write the output to an .asm file with the same base name as the input file.
-	output_file := os.join_path(os.dir(input_file), base + '.asm')
-	os.write_file(output_file, code_writer.output.join('\n')) or {
-		println('Error writing to file: ${output_file}')
-		return
+	// Split into components
+	parts := clean.fields()
+	cmd_str := parts[0]
+	// Map string to command type
+	cmd_type := match cmd_str {
+		'add' { CmdType.add }
+		'sub' { CmdType.sub }
+		'neg' { CmdType.neg }
+		'eq' { CmdType.eq }
+		'gt' { CmdType.gt }
+		'lt' { CmdType.lt }
+		'and' { CmdType.and }
+		'or' { CmdType.or }
+		'not' { CmdType.not }
+		'push' { CmdType.push }
+		'pop' { CmdType.pop }
+		else { return none }
 	}
-	println('Translation complete. Output written to ${output_file}')
+	// For push/pop commands, parse segment and index
+	if cmd_type in [.push, .pop] {
+		if parts.len < 3 {
+			return none
+		}
+		idx := parts[2].int()
+		return VMCommand{
+			typ:     cmd_type
+			segment: parts[1]
+			index:   idx
+		}
+	}
+	return VMCommand{
+		typ: cmd_type
+	}
+}
+
+// -------- CODE WRITER UTILITIES --------
+
+/// Appends one or more lines to the output buffer.
+pub fn (mut cw CodeWriter) emit(lines ...string) {
+	cw.out << lines
+}
+
+/// Writes assembly code for arithmetic and logical commands.
+pub fn (mut cw CodeWriter) write_arithmetic(cmd VMCommand) {
+	match cmd.typ {
+		.add {
+			cw.emit('@SP', 'AM=M-1', 'D=M', 'A=A-1', 'M=M+D')
+		}
+		.sub {
+			cw.emit('@SP', 'AM=M-1', 'D=M', 'A=A-1', 'M=M-D')
+		}
+		.neg {
+			cw.emit('@SP', 'A=M-1', 'M=-M')
+		}
+		.eq, .gt, .lt {
+			// Generate unique labels for comparisons
+			label := match cmd.typ {
+				.eq { 'EQ' }
+				.gt { 'GT' }
+				.lt { 'LT' }
+				else { 'CMP' }
+			}
+			true_label := '${label}_TRUE${cw.label_counter}'
+			end_label := '${label}_END${cw.label_counter}'
+			jump := match cmd.typ {
+				.eq { 'JEQ' }
+				.gt { 'JGT' }
+				.lt { 'JLT' }
+				else { '' }
+			}
+			cw.label_counter++
+			cw.emit('@SP', 'AM=M-1', 'D=M', 'A=A-1', 'D=M-D', '@${true_label}', 'D;${jump}',
+				'D=0', '@${end_label}', '0;JMP', '(${true_label})', 'D=-1', '(${end_label})',
+				'@SP', 'A=M-1', 'M=D')
+		}
+		.and {
+			cw.emit('@SP', 'AM=M-1', 'D=M', 'A=A-1', 'M=M&D')
+		}
+		.or {
+			cw.emit('@SP', 'AM=M-1', 'D=M', 'A=A-1', 'M=M|D')
+		}
+		.not {
+			cw.emit('@SP', 'A=M-1', 'M=!M')
+		}
+		else {}
+	}
+}
+
+/// Writes assembly code for push and pop commands.
+pub fn (mut cw CodeWriter) write_push_pop(cmd VMCommand) {
+	if cmd.typ == .push {
+		match cmd.segment {
+			'constant' {
+				cw.emit('@${cmd.index}', 'D=A', '@SP', 'A=M', 'M=D', '@SP', 'M=M+1')
+			}
+			'local', 'argument', 'this', 'that' {
+				seg := match cmd.segment {
+					'local' { 'LCL' }
+					'argument' { 'ARG' }
+					'this' { 'THIS' }
+					'that' { 'THAT' }
+					else { '' }
+				}
+				cw.emit('@${cmd.index}', 'D=A', '@${seg}', 'A=M+D', 'D=M', '@SP', 'A=M',
+					'M=D', '@SP', 'M=M+1')
+			}
+			'temp' {
+				temp_addr := 5 + cmd.index
+				cw.emit('@${temp_addr}', 'D=M', '@SP', 'A=M', 'M=D', '@SP', 'M=M+1')
+			}
+			'pointer' {
+				seg := if cmd.index == 0 { 'THIS' } else { 'THAT' }
+				cw.emit('@${seg}', 'D=M', '@SP', 'A=M', 'M=D', '@SP', 'M=M+1')
+			}
+			'static' {
+				cw.emit('@${cw.file_name}.${cmd.index}', 'D=M', '@SP', 'A=M', 'M=D', '@SP',
+					'M=M+1')
+			}
+			else {}
+		}
+	} else if cmd.typ == .pop {
+		match cmd.segment {
+			'local', 'argument', 'this', 'that' {
+				seg := match cmd.segment {
+					'local' { 'LCL' }
+					'argument' { 'ARG' }
+					'this' { 'THIS' }
+					'that' { 'THAT' }
+					else { '' }
+				}
+				cw.emit('@${cmd.index}', 'D=A', '@${seg}', 'D=M+D', '@R13', 'M=D', '@SP',
+					'AM=M-1', 'D=M', '@R13', 'A=M', 'M=D')
+			}
+			'temp' {
+				temp_addr := 5 + cmd.index
+				cw.emit('@SP', 'AM=M-1', 'D=M', '@${temp_addr}', 'M=D')
+			}
+			'pointer' {
+				seg := if cmd.index == 0 { 'THIS' } else { 'THAT' }
+				cw.emit('@SP', 'AM=M-1', 'D=M', '@${seg}', 'M=D')
+			}
+			'static' {
+				cw.emit('@SP', 'AM=M-1', 'D=M', '@${cw.file_name}.${cmd.index}', 'M=D')
+			}
+			else {}
+		}
+	}
+}
+
+// -------- MAIN ENTRY POINT --------
+
+/// Program entry point. Reads VM commands, translates, and writes output.
+fn main() {
+	// Validate arguments
+	if os.args.len < 2 {
+		eprintln('Usage: v run lab1.v <input.vm>')
+		exit(1)
+	}
+	// Read input file
+	input := os.args[1]
+	lines := os.read_lines(input) or {
+		eprintln('Failed to read file: ${input}')
+		exit(1)
+	}
+	// Parse commands
+	mut commands := []VMCommand{}
+	for line in lines {
+		if cmd := parse_line(line) {
+			commands << cmd
+		}
+	}
+	// Initialize code writer
+	mut cw := CodeWriter{
+		file_name: os.file_name(input).all_before_last('.')
+	}
+	// Generate code
+	for cmd in commands {
+		if cmd.typ in [.push, .pop] {
+			cw.write_push_pop(cmd)
+		} else {
+			cw.write_arithmetic(cmd)
+		}
+	}
+	// Write output file
+	out_file := os.join_path(os.dir(input), '${cw.file_name}.asm')
+	os.write_lines(out_file, cw.out) or {
+		eprintln('Failed to write output file')
+		exit(1)
+	}
+	println('Translation complete: ${out_file}')
 }
