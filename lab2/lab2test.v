@@ -157,8 +157,8 @@ pub fn (mut cw CodeWriter) write_arithmetic(cmd VMCommand) {
 				.lt { 'JLT' } // jump if less than
 				else { '' }
 			}
-			true_lbl := '${cw.func_name}*${base}*TRUE*${cw.label_counter}'
-			end_lbl := '${cw.func_name}*${base}*END*${cw.label_counter}'
+			true_lbl := '${cw.func_name}_${base}_TRUE_${cw.label_counter}'
+			end_lbl := '${cw.func_name}_${base}_END_${cw.label_counter}'
 			cw.label_counter++
 			cw.emit('@SP', // A = SP
 			 'AM=M-1', // SP--, A = SP, M = y
@@ -278,13 +278,13 @@ pub fn (mut cw CodeWriter) write_push_pop(cmd VMCommand) {
 
 pub fn (mut cw CodeWriter) write_label(label string) {
 	// Declare a label in the assembly named functionName$label for branching
-	cw.emit('(${cw.func_name}$$${label})' // Declare label function$label
+	cw.emit('(${cw.func_name}$${label})' // Declare label function$label
 	 )
 }
 
 pub fn (mut cw CodeWriter) write_goto(label string) {
 	// Unconditional jump to the label functionName$label
-	cw.emit('@${cw.func_name}$$${label}', // A = label address
+	cw.emit('@${cw.func_name}$${label}', // A = label address
 	 '0;JMP' // goto label
 	 )
 }
@@ -294,7 +294,7 @@ pub fn (mut cw CodeWriter) write_if(label string) {
 	cw.emit('@SP', // A = SP
 	 'AM=M-1', // SP--, A = SP
 	 'D=M', // D = popped value
-	 '@${cw.func_name}$$${label}', // A = label address
+	 '@${cw.func_name}$${label}', // A = label address
 	 'D;JNE' // if D!=0 jump
 	 )
 }
@@ -323,7 +323,7 @@ pub fn (mut cw CodeWriter) write_call(cmd VMCommand) {
 	// Call a function: push return address,
 	// save LCL, ARG, THIS, THAT, reposition ARG and LCL,
 	// then jump
-	ret_lbl := '${cw.func_name}*ret*${cw.label_counter}'
+	ret_lbl := '${cw.func_name}_ret_${cw.label_counter}'
 	cw.label_counter++
 	cw.emit('@${ret_lbl}', // A = return-address label
 	 'D=A', // D = return-address
