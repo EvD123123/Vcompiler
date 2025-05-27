@@ -1,0 +1,19 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: BasicForLoop.vm
+
+// Computes the sum 1 + 2 + ... + argument[0] and pushes the 
+// result onto the stack. Argument[0] is initialized by the test 
+// script before this code starts running.
+push constant 0    
+pop local 0         // initializes sum = 0
+for SUM_END argument 0	// argument 0 is the N of the syntax definition, which the counter of the loop
+push argument 0    
+push local 0
+add
+pop local 0	        // sum = sum + counter
+endfor      		// After executing the loop body, the counter, which is argument 0,  
+push local 0		// is automatically decremented by one and the loop body is executed again.
+					// When the counter is 0, the for loop stops in label SUM_END and the flow of the program 
+					// continues in the line following the label, which is the statement  push local 0
