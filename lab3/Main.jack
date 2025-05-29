@@ -1,0 +1,10 @@
+// Main.jack - Entry point for the typing accuracy test game
+class Main {
+    function void main() {
+        var TypingGame game;
+        let game = TypingGame.new();
+        do game.run();
+        do game.dispose();
+        return;
+    }
+}

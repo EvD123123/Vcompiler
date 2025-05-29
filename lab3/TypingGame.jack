@@ -1,0 +1,339 @@
+/**
+ * TypingGame.jack - A typing accuracy test game for the Jack programming language
+ *
+ * This class implements a simple typing game where users must type a given text
+ * exactly as shown. The game measures typing accuracy by comparing the user's
+ * input character-by-character with the target text. Key features include:
+ * - Hidden user input (no visual feedback while typing)
+ * - Real-time progress tracking
+ * - Accuracy calculation with feedback
+ * - Case-insensitive comparison
+ * - Key debouncing to prevent multiple registrations
+ */
+class TypingGame {
+    // Game state fields
+    field String targetText;    // The text the user needs to type
+    field String userInput;     // User's typed input (built character by character)
+    field int textLength;       // Length of the target text
+    field int currentPos;       // Current position in the typing progress
+    field boolean gameActive;   // Whether the game is currently running
+    field boolean gameComplete; // Whether the current game round is finished
+
+    // Input handling fields for key debouncing
+    field int lastKey;          // Last key that was pressed
+    field boolean keyPressed;   // Whether a key is currently being held down
+
+    /**
+     * Constructor - Initializes a new typing game instance
+     * Sets up the target text and initializes all game state variables
+     */
+    constructor TypingGame new() {
+        let targetText = "The quick brown fox jumps over the lazy dog";
+        let textLength = targetText.length();
+        let userInput = String.new(textLength);
+        let currentPos = 0;
+        let gameActive = false;
+        let gameComplete = false;
+        let lastKey = 0;
+        let keyPressed = false;
+        return this;
+    }
+
+    /**
+     * Destructor - Cleans up memory allocated for strings and the object itself
+     * Important for preventing memory leaks in the Jack environment
+     */
+    method void dispose() {
+        do targetText.dispose();
+        do userInput.dispose();
+        do Memory.deAlloc(this);
+        return;
+    }
+
+    /**
+     * Main game loop - Handles all user input and game state transitions
+     * This method runs continuously until the user chooses to quit.
+     * Implements key debouncing to ensure each key press is registered only once.
+     */
+    method void run() {
+        var char key;
+        var boolean exit;
+        var boolean keyJustPressed;
+        var boolean keyPressed;  // Local variable for key state tracking
+        var char lastKey;        // Local variable for last pressed key
+
+        // Initialize loop control variables
+        let exit = false;
+        let keyPressed = false;
+        let lastKey = 0;
+
+        // Show initial instructions to the user
+        do showInstructions();
+
+        // Main game loop - continues until user presses '0' to quit
+        while (~exit) {
+            let key = Keyboard.keyPressed();
+            let keyJustPressed = false;
+
+            // Key debouncing logic - prevents multiple registrations of the same key press
+            // This ensures that holding down a key doesn't spam input
+            if (key = 0) {  // No key currently pressed
+                let keyPressed = false;
+                let lastKey = 0;
+            } else {
+                if (keyPressed) {
+                    if (key = lastKey) {
+                        // Same key still being held - ignore
+                    } else {
+                        // Different key pressed while another was held
+                        let keyJustPressed = true;
+                        let lastKey = key;
+                    }
+                } else {
+                    // New key press detected
+                    let keyJustPressed = true;
+                    let keyPressed = true;
+                    let lastKey = key;
+                }
+            }
+
+            // Process valid key presses
+            if (keyJustPressed) {
+                // Enter key starts the game
+                if (key = String.newLine()) {
+                    do startGame();
+                }
+
+                // '0' key quits the application
+                if (key = 48) {
+                    let exit = true;
+                }
+
+                // Handle printable characters during gameplay
+                // ASCII range 32-126 covers printable characters
+                if (gameActive & (key > 31) & (key < 127)) {
+                    do handleInput(key);
+                }
+            }
+
+            // Small delay to prevent excessive CPU usage
+            do Sys.wait(10);
+        }
+
+        return;
+    }
+
+    /**
+     * Displays the initial instruction screen
+     * Shows game rules, the target text, and control instructions
+     */
+    method void showInstructions() {
+        do Screen.clearScreen();
+
+        // Display title
+        do Output.moveCursor(2, 5);
+        do Output.printString("TYPING ACCURACY TEST");
+
+        // Display instructions
+        do Output.moveCursor(4, 2);
+        do Output.printString("Instructions:");
+        do Output.moveCursor(5, 2);
+        do Output.printString("- Type the text shown below exactly");
+        do Output.moveCursor(6, 2);
+        do Output.printString("- Your typing is hidden - no corrections allowed");
+        do Output.moveCursor(7, 2);
+        do Output.printString("- Press ENTER to start");
+        do Output.moveCursor(8, 2);
+        do Output.printString("- Press 0 to quit");
+
+        // Display the target text that needs to be typed
+        do Output.moveCursor(11, 2);
+        do Output.printString("Text to type:");
+        do Output.moveCursor(12, 2);
+        do Output.printString(targetText);
+        return;
+    }
+
+    /**
+     * Initializes a new game round
+     * Resets all game state variables and displays the typing interface
+     */
+    method void startGame() {
+        // Reset game state for new round
+        let gameActive = true;
+        let gameComplete = false;
+        let currentPos = 0;
+
+        // Clear previous user input and create fresh string
+        do userInput.dispose();
+        let userInput = String.new(textLength);
+
+        // Display the typing interface
+        do Screen.clearScreen();
+        do Output.moveCursor(2, 5);
+        do Output.printString("TYPING IN PROGRESS...");
+        do Output.moveCursor(4, 2);
+        do Output.printString("Type this text:");
+        do Output.moveCursor(5, 2);
+        do Output.printString(targetText);
+        do Output.moveCursor(7, 2);
+        do Output.printString("Progress: ");
+        do updateProgress();
+        do Output.moveCursor(9, 2);
+        do Output.printString("(Your typing is hidden)");
+        return;
+    }
+
+    /**
+     * Processes a single character input from the user
+     * Adds the character to the user input string and updates progress
+     * Triggers game completion when all characters have been typed
+     */
+    method void handleInput(char key) {
+        if (currentPos < textLength) {
+            // Add the typed character to user input
+            do userInput.appendChar(key);
+            let currentPos = currentPos + 1;
+            do updateProgress();
+
+            // Check if the entire text has been typed
+            if (currentPos = textLength) {
+                let gameActive = false;
+                let gameComplete = true;
+                do showResults();
+            }
+        }
+        return;
+    }
+
+    /**
+     * Updates and displays the current typing progress
+     * Shows both percentage completion and character count (e.g., "45% (20/44)")
+     */
+    method void updateProgress() {
+        var String progressStr;
+        var int percentage;
+
+        // Calculate percentage completion
+        let percentage = (currentPos * 100) / textLength;
+        let progressStr = String.new(10);
+        do progressStr.setInt(percentage);
+
+        // Display progress information
+        do Output.moveCursor(7, 12);
+        do Output.printString(progressStr);
+        do Output.printString("% (");
+        do Output.printInt(currentPos);
+        do Output.printString("/");
+        do Output.printInt(textLength);
+        do Output.printString(")");
+
+        do progressStr.dispose();
+        return;
+    }
+
+    /**
+     * Analyzes typing accuracy and displays comprehensive results
+     * Compares user input with target text character by character,
+     * performs case-insensitive matching, and calculates accuracy percentage
+     */
+    method void showResults() {
+        var int correctChars;
+        var int accuracy;
+        var char targetChar, userChar;
+        var int i;
+        var String accuracyStr;
+
+        let correctChars = 0;
+        let i = 0;
+
+        // Perform character-by-character comparison
+        while (i < textLength) {
+            let targetChar = targetText.charAt(i);
+            let userChar = userInput.charAt(i);
+
+            // Convert uppercase letters to lowercase for case-insensitive comparison
+            // ASCII: A-Z is 65-90, a-z is 97-122 (difference of 32)
+            if ((targetChar > 64) & (targetChar < 91)) {
+                let targetChar = targetChar + 32;
+            }
+            if ((userChar > 64) & (userChar < 91)) {
+                let userChar = userChar + 32;
+            }
+
+            // Count matching characters
+            if (targetChar = userChar) {
+                let correctChars = correctChars + 1;
+            }
+
+            let i = i + 1;
+        }
+
+        // Calculate accuracy percentage
+        let accuracy = (correctChars * 100) / textLength;
+
+        // Display comprehensive results screen
+        do Screen.clearScreen();
+        do Output.moveCursor(2, 8);
+        do Output.printString("RESULTS");
+
+        // Show both target and user input for comparison
+        do Output.moveCursor(4, 2);
+        do Output.printString("Target text:");
+        do Output.moveCursor(5, 2);
+        do Output.printString(targetText);
+        do Output.moveCursor(7, 2);
+        do Output.printString("Your input:");
+        do Output.moveCursor(8, 2);
+        do Output.printString(userInput);
+
+        // Display accuracy statistics
+        do Output.moveCursor(10, 2);
+        do Output.printString("Correct characters: ");
+        do Output.printInt(correctChars);
+        do Output.printString(" out of ");
+        do Output.printInt(textLength);
+        do Output.moveCursor(12, 2);
+        do Output.printString("ACCURACY: ");
+        do Output.printInt(accuracy);
+        do Output.printString("%");
+
+        // Show personalized feedback based on performance
+        do showAccuracyFeedback(accuracy);
+
+        // Display options for next action
+        do Output.moveCursor(16, 2);
+        do Output.printString("Press ENTER to try again, 0 to quit");
+        return;
+    }
+
+    /**
+     * Provides encouraging feedback based on typing accuracy
+     * Uses different messages for different accuracy ranges to motivate improvement
+     *
+     * @param accuracy The calculated accuracy percentage (0-100)
+     */
+    method void showAccuracyFeedback(int accuracy) {
+        do Output.moveCursor(14, 2);
+
+        // Provide tiered feedback based on accuracy level
+        if (accuracy = 100) {
+            do Output.printString("Perfect! Outstanding typing!");
+        } else {
+            if (accuracy > 90) {
+                do Output.printString("Excellent typing!");
+            } else {
+                if (accuracy > 80) {
+                    do Output.printString("Good job!");
+                } else {
+                    if (accuracy > 70) {
+                        do Output.printString("Not bad, keep practicing!");
+                    } else {
+                        do Output.printString("Keep practicing to improve!");
+                    }
+                }
+            }
+        }
+        return;
+    }
+}
